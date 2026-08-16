@@ -1,15 +1,18 @@
 import streamlit as st
-from PIL import Image, ImageDraw
+from PIL import Image
+from streamlit_drawable_canvas import st_canvas
 import io
 from pptx import Presentation
 from pptx.util import Inches
 
+# Cấu hình trang
 st.set_page_config(page_title="Note-Dim Web V10", layout="wide")
 
-# Khởi tạo bộ nhớ tạm cho các trang slide
+# KHỞI TẠO BỘ NHỚ TẠM
 if 'project_slides' not in st.session_state:
     st.session_state.project_slides = []
 
+# CÁC HÀM XUẤT FILE
 def create_pdf(images):
     buf = io.BytesIO()
     if images:
@@ -31,10 +34,10 @@ def create_pptx(images):
     buf.seek(0)
     return buf.getvalue()
 
-# Giao diện Sidebar quản lý danh sách slide
+# GIAO DIỆN CỘT BÊN TRÁI (QUẢN LÝ SLIDE)
 with st.sidebar:
     st.header("📑 Danh sách Trang (Slide)")
-    st.write(f"Đã lưu: **{len(st.session_state.project_slides)}** trang")
+    st.write(f"Đang có: **{len(st.session_state.project_slides)}** ảnh")
     
     if len(st.session_state.project_slides) > 0:
         for i, img in enumerate(st.session_state.project_slides):
@@ -42,54 +45,72 @@ with st.sidebar:
             
         st.write("---")
         st.subheader("📥 Xuất Dự Án")
+        
         st.download_button(
             label="📄 Tải xuống file PDF",
             data=create_pdf(st.session_state.project_slides),
             file_name="Du_An_Note_Dim.pdf",
             mime="application/pdf"
         )
+        
         st.download_button(
             label="📊 Tải xuống file PowerPoint",
             data=create_pptx(st.session_state.project_slides),
             file_name="Du_An_Note_Dim.pptx",
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
         )
+        
         if st.button("🗑️ Xóa toàn bộ dự án"):
             st.session_state.project_slides = []
             st.rerun()
 
-st.title("📏 Công cụ Note-Dim (Phiên bản Web ổn định)")
-st.markdown("Tải ảnh lên, thêm ghi chú nhanh và gom vào danh sách để xuất file PDF/PPTX hàng loạt.")
+# GIAO DIỆN CHÍNH
+st.title("📏 Công cụ Note-Dim (Bản Web có Canvas)")
+st.markdown("Dùng chuột để vẽ trực tiếp lên ảnh. Sau khi ưng ý, nhấn **Thêm vào Dự Án**.")
 
-uploaded_file = st.file_uploader("📂 Tải ảnh lên", type=["png", "jpg", "jpeg"])
+uploaded_file = st.file_uploader("📂 Tải ảnh bản vẽ lên", type=["png", "jpg", "jpeg"])
 
 if uploaded_file is not None:
-    image = Image.open(uploaded_file).convert("RGB")
+    image = Image.open(uploaded_file)
     
     st.write("---")
-    st.subheader("✍️ Thêm ghi chú văn bản lên ảnh")
-    
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([2, 2, 2])
     with col1:
-        note_text = st.text_input("Nhập nội dung ghi chú/thông số:")
-        text_x = st.slider("Vị trí ngang (X theo % ảnh)", 0, 100, 50)
-        text_y = st.slider("Vị trí dọc (Y theo % ảnh)", 0, 100, 50)
+        # Các công cụ vẽ bằng chuột
+        drawing_mode = st.selectbox("🖱️ Chọn công cụ:", ("freedraw", "line", "rect", "transform", "polygon"))
     with col2:
-        font_size = st.slider("Cỡ chữ:", 10, 100, 30)
-        # Tạo bản vẽ có chứa chữ người dùng nhập
-        edited_image = image.copy()
-        draw = ImageDraw.Draw(edited_image)
-        if note_text:
-            # Tính toán tọa độ thực tế trên ảnh
-            real_x = int(image.width * (text_x / 100))
-            real_y = int(image.height * (text_y / 100))
-            draw.text((real_x, real_y), note_text, fill=(255, 0, 0)) # Chữ màu đỏ nổi bật
+        stroke_width = st.slider("📐 Độ dày nét:", 1, 10, 3)
+    with col3:
+        stroke_color = st.color_picker("🎨 Màu nét:", "#FF0000")
 
-    st.write("### 🖼️ Xem trước kết quả")
-    st.image(edited_image, use_container_width=True)
+    # Hiển thị bảng vẽ Canvas
+    canvas_width = 1000
+    canvas_height = int((image.height / image.width) * canvas_width)
+    
+    st.write("### 🖼️ Trình chỉnh sửa (Dùng chuột để vẽ)")
+    canvas_result = st_canvas(
+        fill_color="rgba(0, 0, 0, 0)",
+        stroke_width=stroke_width,
+        stroke_color=stroke_color,
+        background_image=image,
+        update_streamlit=True,
+        width=canvas_width,
+        height=canvas_height,
+        drawing_mode=drawing_mode,
+        key="canvas",
+    )
 
-    st.write("---")
-    if st.button("➕ Thêm trang này vào Dự Án", type="primary"):
-        st.session_state.project_slides.append(edited_image)
-        st.success(f"Đã thêm vào danh sách! Tổng số trang: {len(st.session_state.project_slides)}")
-        st.rerun()
+    # Chốt ảnh và đẩy vào Slide
+    if canvas_result.image_data is not None:
+        drawn_image = Image.fromarray(canvas_result.image_data.astype("uint8"), "RGBA")
+        drawn_image = drawn_image.resize(image.size, Image.Resampling.LANCZOS)
+        
+        final_img = image.convert("RGBA").copy()
+        final_img.alpha_composite(drawn_image)
+        final_img = final_img.convert("RGB")
+
+        st.write("---")
+        if st.button("➕ Thêm ảnh đã vẽ vào Dự Án", type="primary"):
+            st.session_state.project_slides.append(final_img)
+            st.success(f"Đã thêm thành công! Tổng cộng: {len(st.session_state.project_slides)} trang.")
+            st.rerun()
