@@ -1,9 +1,24 @@
 import streamlit as st
 from PIL import Image
-from streamlit_drawable_canvas import st_canvas
 import io
+import base64
 from pptx import Presentation
 from pptx.util import Inches
+
+# --- BẢN VÁ LỖI (HACK FIX) CHO STREAMLIT CLOUD ---
+# Đoạn này xử lý triệt để lỗi "st_image.image_to_url"
+import streamlit.elements.image as st_image
+def patched_image_to_url(image, *args, **kwargs):
+    buffered = io.BytesIO()
+    if isinstance(image, Image.Image):
+        image.save(buffered, format="PNG")
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    return f"data:image/png;base64,{img_str}"
+st_image.image_to_url = patched_image_to_url
+
+# Bắt buộc import st_canvas sau đoạn vá lỗi
+from streamlit_drawable_canvas import st_canvas
+# ------------------------------------------------
 
 # Cấu hình trang
 st.set_page_config(page_title="Note-Dim Web V10", layout="wide")
